@@ -1,0 +1,281 @@
+<html>
+  <head>
+    <title>Rack::Test Tutorial</title>
+    <link rel="stylesheet" href="css/reset.css">
+    <link rel="stylesheet" href="css/main.css">
+    <link href="css/solarized-dark.css" rel="stylesheet" type="text/css">
+  </head>
+  <body>
+    <nav>
+      <div class="container">
+        <h1>Tutorial</h1>
+      </div>
+    </nav>
+    <div class="container">
+      <h2>Estimated Time: 30 minutes</h2>
+      <p>In the repo you cloned with this file there's also film_file folder holding the FilmFile repo that we worked on previously. This version is up to date with the work that we've completed to this point.</p>
+
+      <h3>Setting up rack-test</h3>
+      <p>Add `rack-test` to your Gemfile:</p>
+
+      <pre>
+        <code data-language="ruby">
+          source 'https://rubygems.org'
+
+          gem 'sinatra', require: 'sinatra/base'
+          gem 'sqlite3'
+          gem 'activerecord'
+          gem 'sinatra-activerecord'
+
+          group :development, :test do
+            gem 'shotgun'
+            gem 'minitest'
+            gem 'tux'
+            gem 'capybara'
+            gem 'rack-test'
+          end
+        </code>
+      </pre>
+
+      Let's drop any database you may have from previous work on this project just so we can see how these tests respond when the database has not yet been set up.
+
+      <pre><code>$ rake db:drop</code></pre>
+
+      <h3>Writing a test with rack-test methods</h3>
+      <p>Create a test file:</p>
+
+      <pre><code>$ touch test/controllers/create_genre_test.rb</code></pre>
+
+      Inside of that file:
+
+      <pre>
+        <code data-language="ruby">
+          require './test/test_helper'
+
+          class CreateGenreTest < Minitest::Test
+            include Rack::Test::Methods     # allows us to use get, post, last_request, etc.
+
+            def app     # def app is something that Rack::Test is looking for
+              FilmFile
+            end
+          end
+        </code>
+      </pre>
+
+      <p>Let's begin by adding a test for a post request to create a genre. This is going to be very similar to a post request from a source wanting to register with the Rush Hour app. Rack gives us some tools to make HTTP requests to our Sinatra application and inspect the response and make assertions based on the response.</p>
+
+      <p>In that same test file CreateGenreTest:</p>
+
+      <pre>
+        <code data-language="ruby">
+          def test_create_a_genre_with_valid_attributes
+            post '/genres', { genre: { name: "Cartoon" } }
+            assert_equal 1, Genre.count
+            assert_equal 200, last_response.status
+            assert_equal "Genre created.", last_response.body
+          end
+        </code>
+      </pre>
+
+      <p>(More about <a href="http://www.rubydoc.info/github/brynary/rack-test/master/Rack/Test/Methods">Rack::Test::Methods</a>)</p>
+
+      <p>Run the test. You should see some error about the database table. That's because we haven't migrated our test database:</p>
+
+      <pre><code>$ rake db:test:prepare</code></pre>
+
+      Now run the test. You should see something like this:
+
+      <pre>
+        <code>
+          Run options: --seed 11902
+
+          # Running:
+
+          F
+
+          Finished in 0.027348s, 36.5657 runs/s, 36.5657 assertions/s.
+
+            1) Failure:
+          CreateGenreTest#test_create_a_genre_with_valid_attributes [test/controllers/create_genre_test.rb:16]:
+          Expected: 1
+            Actual: 0
+
+          1 runs, 1 assertions, 1 failures, 0 errors, 0 skips
+        </code>
+      </pre>
+
+      <h3>Getting the request test to pass</h3>
+
+      <p>To get this test passing, we need to add this route in our controller:</p>
+
+      <pre>
+        <code data-language="ruby">
+          class FilmFile < Sinatra::Base
+            get '/genres' do
+              @genres = Genre.all
+              erb :genres_index
+            end
+
+            post '/genres' do
+              Genre.create(params[:genre])
+              status 200
+              body "Genre created."
+            end
+          end
+        </code>
+      </pre>
+
+      <p>Run the test a few more times and you might see something like the following.</p>
+
+      <pre>
+        <code>
+          Run options: --seed 21194
+
+          # Running:
+
+          F
+
+          Finished in 0.054689s, 36.5703 runs/s, 36.5703 assertions/s.
+
+            1) Failure:
+            CreateGenreTest#test_create_a_genre_with_valid_attributes [test/controllers/create_genre_test.rb:20]:
+            Expected: 1
+            Actual: 2
+
+          1 run, 1 assertion, 1 failure, 0 errors, 0 skips
+        </code>
+      </pre>
+
+      <p><em>It was passing. Why is it failing now?</em></p>
+
+
+      <h3>Database Cleaner</h3>
+
+      <p>If we read the failure message, we see that we expected there to be a single genre saved to the database, but for some reason there are now two. We migh want to consider not allowing genres to be created with duplicate names, but the bigger issue at this moment is that subsequent runs of our test suite don't seem to be starting with a fresh slate.</p>
+
+      <p>This is a big issue. We might not even be able to tell if we break something if in the future our test is based on data created in earlier runs of our suite. We want to make sure that each time we run our test suite we are starting with a clean database and the items that are in the database are items we added in this round of testing.</p>
+
+      <p>To achieve this, we'll use DatabaseCleaner</p>
+
+      <p>Go back to your Gemfile and add database_cleaner</p>
+
+      <pre>
+        <code data-language="ruby">
+          source 'https://rubygems.org'
+
+          gem 'sinatra', require: 'sinatra/base'
+          gem 'sqlite3'
+          gem 'activerecord'
+          gem 'sinatra-activerecord'
+
+          group :development, :test do
+            gem 'shotgun'
+            gem 'minitest'
+            gem 'tux'
+            gem 'capybara'
+            gem 'rack-test'
+            gem 'database_cleaner'
+          end
+        </code>
+      </pre>
+
+
+      <p>Configure the database cleaner in `test_helper.rb`:</p>
+
+      <pre>
+        <code data-language="ruby">
+          require 'database_cleaner'
+          DatabaseCleaner.strategy = :truncation, {except: %w[public.schema_migrations]}
+        </code>
+      </pre>
+
+
+      <p>Wondering WTF `DatabaseCleaner.strategy = :truncation` means? Check out <a href="http://stackoverflow.com/questions/10904996/difference-between-truncation-transaction-and-deletion-database-strategies">this Stackoverflow answer</a>.</p>
+
+      <p>Update your test file to include setup and teardown methods that run Database Cleaner before and after each test is run.</p>
+
+      <pre>
+        <code data-language="ruby">
+          require './test/test_helper'
+
+          class CreateGenreTest < Minitest::Test
+            include Rack::Test::Methods     # allows us to use get, post, last_request, etc.
+
+            def app     # def app is something that Rack::Test is looking for
+              FilmFile
+            end
+
+            def setup
+              DatabaseCleaner.start
+            end
+
+            def teardown
+              DatabaseCleaner.clean
+            end
+
+            # existing test is here.
+          end
+        </code>
+      </pre>
+
+
+      <p>Try to run your tests again - they might fail a couple of times with slightly changing results as DB cleaner works its magic. They should pass after one or two more tries.</p>
+
+      <h3>Sad Paths</h3>
+
+      <p>What if someone tries to create a task without a title? We need to <a href="http://guides.rubyonrails.org/active_record_validations.html">validate</a> our data. Let's write a test first:</p>
+
+      <pre>
+        <code data-language="ruby">
+          def test_cannot_create_a_genre_without_a_name
+            post '/genres', { genre: { } }
+            assert_equal 0, Genre.count
+            assert_equal 400, last_response.status
+            assert_equal "missing name", last_response.body
+          end
+        </code>
+      </pre>
+
+
+      <p>Run our test to see it fail since we're able to successfully create this genre when our test says we shouldn't.</p>
+
+      <p>Normally at this point, we would drop down into a model test and write a test for our validations. For the purpose of this lesson, we'll skip that for now.</p>
+
+      <p>In our Genre model:</p>
+
+      <pre>
+        <code data-language="ruby">
+          class Genre < ActiveRecord::Base
+            validates_presence_of :name
+          end
+        </code>
+      </pre>
+
+      <p>Run our test. It will still fail, but this time because we're getting the wrong status code.</p>
+
+      <p><em>How do you think we might be able to send a different status code based on whether a genre has successfully saved?</em></p>
+
+      <p>In our controller:</p>
+
+      <pre>
+        <code data-language="ruby">
+          post '/genres' do
+            genre = Genre.new(params[:genre])
+            if genre.save
+              status 200
+              body "Genre created."
+            else
+              status 400
+              body "missing name"
+            end
+          end
+        </code>
+      </pre>
+
+      <p>Instead of simply creating a new Genre with whatever gets passed in, we use .new to make a new Genre object, but then based on whether that Genre successfully saves (using .save in the conditional) we determine our response.</p>
+
+      <p>Run the tests again and at this point everything should be passing. Let us know if not and we can dig into why that's might be.</p>
+    </div> <!-- /container -->
+    <script src="js/rainbow-custom.min.js"></script>
+  </body>
+</html>
